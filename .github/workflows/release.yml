@@ -1,0 +1,128 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v0.1.0 or v0.1.0-beta.1)'
+        required: true
+      prerelease:
+        description: 'Is this a pre-release?'
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin
+            arch: arm64
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+          - os: ubuntu-24.04
+            platform: linux
+            arch: x64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          - os: windows-2025
+            platform: win32
+            arch: x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build library and CLI
+        run: |
+          zig build -Doptimize=ReleaseFast
+
+      - name: Run tests
+        run: |
+          zig build test
+
+      - name: Package binaries
+        run: |
+          node scripts/package-binaries.js
+
+      - name: Create tarball
+        shell: bash
+        run: |
+          cd dist
+          if [ "${{ matrix.platform }}" = "win32" ]; then
+            tar -czf ../zig-asar-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz zig-asar.exe libasar.dll
+          elif [ "${{ matrix.platform }}" = "darwin" ]; then
+            tar -czf ../zig-asar-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz zig-asar libasar.dylib
+          else
+            tar -czf ../zig-asar-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz zig-asar libasar.so
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zig-asar-${{ matrix.platform }}-${{ matrix.arch }}
+          path: zig-asar-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: |
+            artifacts/**/*.tar.gz
+          generate_release_notes: true
+          prerelease: ${{ github.event.inputs.prerelease || contains(github.ref_name, '-beta') || contains(github.event.inputs.tag, '-beta') }}
+          body: |
+            zig-asar release
+
+            Pre-built binaries for:
+            - **macOS** (arm64 & x64): `zig-asar-darwin-[arch].tar.gz`
+            - **Linux** (x64 & arm64): `zig-asar-linux-[arch].tar.gz`
+            - **Windows** (x64): `zig-asar-win32-x64.tar.gz`
+
+            Each tarball contains:
+            - `zig-asar` - CLI tool for packing/unpacking ASAR archives
+            - `libasar.{dylib,so,dll}` - Dynamic library for use with native code
+
+            ## Usage
+
+            ### CLI Tool
+            ```bash
+            tar -xzf zig-asar-darwin-arm64.tar.gz
+            ./zig-asar pack myapp app.asar
+            ./zig-asar pack myapp app.asar --unpack *.node --unpack *.dll
+            ./zig-asar list app.asar
+            ./zig-asar extract app.asar views/index.html
+            ```
+
+            ### Library (C FFI)
+            Link against `libasar.{dylib,so,dll}` from your native code.
+            See [README.md](https://github.com/blackboardsh/zig-asar/blob/main/README.md) for API documentation.

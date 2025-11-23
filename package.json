@@ -1,0 +1,28 @@
+{
+  "name": "zig-asar",
+  "version": "0.1.0",
+  "description": "Fast, lightweight ASAR (Electron Archive) implementation in Zig",
+  "type": "module",
+  "scripts": {
+    "build": "zig build",
+    "build:release": "zig build -Doptimize=ReleaseFast",
+    "test": "zig build test",
+    "package": "node scripts/package-binaries.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blackboardsh/zig-asar.git"
+  },
+  "keywords": [
+    "asar",
+    "electron",
+    "archive",
+    "zig"
+  ],
+  "author": "Blackboard",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/blackboardsh/zig-asar/issues"
+  },
+  "homepage": "https://github.com/blackboardsh/zig-asar#readme"
+}

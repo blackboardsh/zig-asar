@@ -1,1 +1,19 @@
-# Add files to ignore here
+# Zig build artifacts
+.zig-cache/
+zig-out/
+
+# Distribution
+dist/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
