@@ -13,14 +13,14 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(lib);
 
-    // CLI binary (thin wrapper around library)
+    // CLI binary (statically linked to avoid dynamic library issues)
     const exe = b.addExecutable(.{
         .name = "zig-asar",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
     });
-    exe.linkLibrary(lib);
+    // Don't link the dynamic library - CLI uses its own code
     b.installArtifact(exe);
 
     // Tests
