@@ -40,19 +40,36 @@ async function packageBinaries() {
 
   // Copy dynamic library
   // Windows uses 'asar.dll', Unix uses 'libasar.{dylib,so}'
+  // Windows may put DLL in bin/ instead of lib/
   const libNameInZigOut = platform === 'win32' ? 'asar' : 'libasar';
   const libNameInDist = 'libasar'; // Always use libasar for consistency
-  const libSrc = join(zigOutLib, libNameInZigOut + libExt);
-  const libDest = join(distDir, libNameInDist + libExt);
 
-  try {
-    await access(libSrc);
-    await copyFile(libSrc, libDest);
-    console.log(`✓ Copied ${libNameInZigOut}${libExt} -> ${libNameInDist}${libExt} to dist/`);
-  } catch (err) {
-    console.error(`✗ Could not copy ${libNameInZigOut}${libExt}:`, err.message);
-    throw new Error(`Failed to package ${libNameInZigOut}${libExt}. Make sure to run 'zig build -Doptimize=ReleaseFast' first.`);
+  // On Windows, try both lib/ and bin/ directories
+  const possibleLibPaths = platform === 'win32'
+    ? [join(zigOutLib, libNameInZigOut + libExt), join(zigOutBin, libNameInZigOut + libExt)]
+    : [join(zigOutLib, libNameInZigOut + libExt)];
+
+  let libSrc = null;
+  for (const path of possibleLibPaths) {
+    try {
+      await access(path);
+      libSrc = path;
+      break;
+    } catch {
+      // Continue searching
+    }
   }
+
+  if (!libSrc) {
+    const searchedPaths = possibleLibPaths.map(p => `  - ${p}`).join('\n');
+    console.error(`✗ Could not find library. Searched:\n${searchedPaths}`);
+    throw new Error(`Failed to find ${libNameInZigOut}${libExt}. Make sure to run 'zig build -Doptimize=ReleaseFast' first.`);
+  }
+
+  const libDest = join(distDir, libNameInDist + libExt);
+  await copyFile(libSrc, libDest);
+  console.log(`✓ Copied ${libNameInZigOut}${libExt} -> ${libNameInDist}${libExt} to dist/`);
+  console.log(`  Source: ${libSrc}`);
 
   console.log('\n✓ Binaries packaged successfully!');
   console.log(`  Platform: ${platform}`);
