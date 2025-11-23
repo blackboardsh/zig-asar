@@ -71,10 +71,43 @@ async function packageBinaries() {
   console.log(`✓ Copied ${libNameInZigOut}${libExt} -> ${libNameInDist}${libExt} to dist/`);
   console.log(`  Source: ${libSrc}`);
 
+  // On Windows, also copy the .lib import library (needed for linking)
+  if (platform === 'win32') {
+    const importLibName = libNameInZigOut + '.lib';
+    const possibleImportLibPaths = [
+      join(zigOutLib, importLibName),
+      join(zigOutBin, importLibName)
+    ];
+
+    let importLibSrc = null;
+    for (const path of possibleImportLibPaths) {
+      try {
+        await access(path);
+        importLibSrc = path;
+        break;
+      } catch {
+        // Continue searching
+      }
+    }
+
+    if (importLibSrc) {
+      const importLibDest = join(distDir, libNameInDist + '.lib');
+      await copyFile(importLibSrc, importLibDest);
+      console.log(`✓ Copied ${importLibName} -> ${libNameInDist}.lib to dist/`);
+      console.log(`  Source: ${importLibSrc}`);
+    } else {
+      console.warn(`⚠️  Warning: Could not find ${importLibName}. Linking against this library may not work.`);
+      console.warn(`  Searched:\n${possibleImportLibPaths.map(p => `    - ${p}`).join('\n')}`);
+    }
+  }
+
   console.log('\n✓ Binaries packaged successfully!');
   console.log(`  Platform: ${platform}`);
   console.log(`  CLI: ${cliBin}${binExt}`);
   console.log(`  Library: ${libNameInDist}${libExt}`);
+  if (platform === 'win32') {
+    console.log(`  Import Library: ${libNameInDist}.lib`);
+  }
 }
 
 packageBinaries().catch(err => {

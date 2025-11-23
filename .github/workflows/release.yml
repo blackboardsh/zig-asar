@@ -65,7 +65,7 @@ jobs:
         run: |
           cd dist
           if [ "${{ matrix.platform }}" = "win32" ]; then
-            tar -czf ../zig-asar-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz zig-asar.exe libasar.dll
+            tar -czf ../zig-asar-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz zig-asar.exe libasar.dll libasar.lib
           elif [ "${{ matrix.platform }}" = "darwin" ]; then
             tar -czf ../zig-asar-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz zig-asar libasar.dylib
           else
@@ -109,8 +109,9 @@ jobs:
             - **Windows** (x64): `zig-asar-win32-x64.tar.gz`
 
             Each tarball contains:
-            - `zig-asar` - CLI tool for packing/unpacking ASAR archives
+            - `zig-asar` (or `zig-asar.exe` on Windows) - CLI tool for packing/unpacking ASAR archives
             - `libasar.{dylib,so,dll}` - Dynamic library for use with native code
+            - `libasar.lib` (Windows only) - Import library for linking
 
             ## Usage
 
