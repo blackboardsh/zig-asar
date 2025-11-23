@@ -34,6 +34,9 @@ jobs:
           - os: windows-2025
             platform: win32
             arch: x64
+          - os: windows-11-arm
+            platform: win32
+            arch: arm64
 
     runs-on: ${{ matrix.os }}
 
@@ -106,7 +109,7 @@ jobs:
             Pre-built binaries for:
             - **macOS** (arm64 & x64): `zig-asar-darwin-[arch].tar.gz`
             - **Linux** (x64 & arm64): `zig-asar-linux-[arch].tar.gz`
-            - **Windows** (x64): `zig-asar-win32-x64.tar.gz`
+            - **Windows** (x64 & arm64): `zig-asar-win32-[arch].tar.gz`
 
             Each tarball contains:
             - `zig-asar` (or `zig-asar.exe` on Windows) - CLI tool for packing/unpacking ASAR archives
