@@ -53,7 +53,7 @@ jobs:
 
       - name: Build library and CLI
         run: |
-          zig build -Doptimize=ReleaseFast
+          zig build -Doptimize=ReleaseFast -Dcpu=baseline
 
       - name: Run tests
         run: |
