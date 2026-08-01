@@ -1,6 +1,6 @@
 {
   "name": "zig-asar",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Fast, lightweight ASAR (Electron Archive) implementation in Zig",
   "license": "MIT",
   "author": "Blackboard Technologies Inc.",

@@ -61,6 +61,21 @@ jobs:
         run: |
           zig build test
 
+      - name: Verify Intel Mach-O code-signing header capacity
+        if: matrix.platform == 'darwin' && matrix.arch == 'x64'
+        shell: bash
+        run: |
+          for artifact in zig-out/lib/libasar.dylib; do
+            sizeofcmds=$(otool -hv "$artifact" | tail -1 | awk '{print $7}')
+            text_offset=$(otool -l "$artifact" | awk '$1 == "sectname" && $2 == "__text" { found = 1 } found && $1 == "offset" { print $2; exit }')
+            headerpad=$((text_offset - 32 - sizeofcmds))
+            if [ "$headerpad" -lt 4096 ]; then
+              echo "$artifact has only $headerpad bytes of Mach-O header padding"
+              exit 1
+            fi
+            echo "Verified $artifact: $headerpad bytes of Mach-O header padding"
+          done
+
       - name: Package binaries
         run: |
           node scripts/package-binaries.js

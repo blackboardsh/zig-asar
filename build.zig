@@ -11,6 +11,10 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    // Leave room for LC_CODE_SIGNATURE in unsigned Intel release artifacts.
+    if (target.result.os.tag == .macos and target.result.cpu.arch == .x86_64) {
+        lib.headerpad_size = 0x1000;
+    }
     b.installArtifact(lib);
 
     // CLI binary (statically linked to avoid dynamic library issues)
