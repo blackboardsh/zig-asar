@@ -67,6 +67,25 @@ jobs:
         run: |
           zig build -Doptimize=ReleaseFast -Dcpu=baseline -Dtarget=${{ matrix.zig-target }}
 
+      - name: Re-link dylib with Apple ld (export contract)
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          # zig 0.16's MachO linker exports ___dso_handle/__mh_dylib_header,
+          # which breaks downstream Apple-ld links against libasar.dylib.
+          # Re-link from the static archive with an explicit export list.
+          clang -dynamiclib -mmacosx-version-min=14.0 \
+            -o zig-out/lib/libasar.dylib \
+            -Wl,-force_load,zig-out/lib/libasar-static.a \
+            -exported_symbols_list scripts/asar-exported-symbols.txt \
+            -Wl,-headerpad,0x1000 \
+            -install_name @rpath/libasar.dylib
+          if nm -gU zig-out/lib/libasar.dylib | grep -q dso_handle; then
+            echo "libasar.dylib still exports ___dso_handle" >&2
+            exit 1
+          fi
+          nm -gU zig-out/lib/libasar.dylib
+
       - name: Validate release contract
         run: node --test scripts/release-contract.test.js
 

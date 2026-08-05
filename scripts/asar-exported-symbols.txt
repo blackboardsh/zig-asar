@@ -1,0 +1,5 @@
+_asar_open
+_asar_close
+_asar_read_file
+_asar_free_buffer
+_asar_pack
