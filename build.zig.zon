@@ -1,0 +1,13 @@
+.{
+    .name = .zig_asar,
+    .version = "0.2.5",
+    .fingerprint = 0xfeee306623e38c3c,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+    },
+}

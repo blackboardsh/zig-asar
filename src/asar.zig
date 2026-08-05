@@ -139,3 +139,41 @@ pub fn calculatePadding(offset: usize) usize {
     const remainder = offset % 4;
     return if (remainder == 0) 0 else 4 - remainder;
 }
+
+test "parseHeader and findEntry" {
+    const testing = std.testing;
+    const json =
+        \\{"files":{"a.txt":{"size":5,"offset":"0"},"dir":{"files":{"b.txt":{"size":3,"offset":"5"}}}}}
+    ;
+
+    var header = try parseHeader(testing.allocator, json);
+    defer header.deinit(testing.allocator);
+
+    const a = findEntry(&header, "a.txt").?;
+    try testing.expectEqual(@as(usize, 5), a.size);
+    try testing.expectEqual(@as(usize, 0), a.offset);
+
+    const b = findEntry(&header, "dir/b.txt").?;
+    try testing.expectEqual(@as(usize, 3), b.size);
+    try testing.expectEqual(@as(usize, 5), b.offset);
+
+    // Missing entries and type mismatches
+    try testing.expect(findEntry(&header, "missing.txt") == null);
+    try testing.expect(findEntry(&header, "dir") == null); // directory, not a file
+    try testing.expect(findEntry(&header, "a.txt/nope") == null); // file used as directory
+    try testing.expect(findEntry(&header, "dir/missing.txt") == null);
+}
+
+test "parseHeader rejects invalid header" {
+    const testing = std.testing;
+    try testing.expectError(error.InvalidHeader, parseHeader(testing.allocator, "{}"));
+}
+
+test "calculatePadding aligns to 4 bytes" {
+    const testing = std.testing;
+    try testing.expectEqual(@as(usize, 0), calculatePadding(0));
+    try testing.expectEqual(@as(usize, 3), calculatePadding(1));
+    try testing.expectEqual(@as(usize, 2), calculatePadding(2));
+    try testing.expectEqual(@as(usize, 1), calculatePadding(3));
+    try testing.expectEqual(@as(usize, 0), calculatePadding(4));
+}

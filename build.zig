@@ -5,11 +5,14 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Dynamic library (for native wrappers and Bun FFI)
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addLibrary(.{
         .name = "asar",
-        .root_source_file = b.path("src/lib.zig"),
-        .target = target,
-        .optimize = optimize,
+        .linkage = .dynamic,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/lib.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     // Leave room for LC_CODE_SIGNATURE in unsigned Intel release artifacts.
     if (target.result.os.tag == .macos and target.result.cpu.arch == .x86_64) {
@@ -20,18 +23,22 @@ pub fn build(b: *std.Build) void {
     // CLI binary (statically linked to avoid dynamic library issues)
     const exe = b.addExecutable(.{
         .name = "zig-asar",
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     // Don't link the dynamic library - CLI uses its own code
     b.installArtifact(exe);
 
     // Tests
     const lib_tests = b.addTest(.{
-        .root_source_file = b.path("src/lib.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/lib.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     const run_lib_tests = b.addRunArtifact(lib_tests);
     const test_step = b.step("test", "Run library tests");

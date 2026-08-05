@@ -2,19 +2,20 @@ const std = @import("std");
 const asar = @import("asar.zig");
 
 pub const AsarArchive = struct {
-    file: std.fs.File,
+    file: std.Io.File,
     header: asar.Header,
     data_offset: u64,
     allocator: std.mem.Allocator,
+    io: std.Io,
 
     /// Open an ASAR archive for reading
-    pub fn open(allocator: std.mem.Allocator, path: []const u8) !*AsarArchive {
-        const file = try std.fs.cwd().openFile(path, .{});
-        errdefer file.close();
+    pub fn open(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !*AsarArchive {
+        const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+        errdefer file.close(io);
 
         // Read header size (8 bytes, little-endian u64)
         var header_size_bytes: [8]u8 = undefined;
-        const n = try file.read(&header_size_bytes);
+        const n = try file.readPositionalAll(io, &header_size_bytes, 0);
         if (n != 8) return error.InvalidArchive;
 
         const header_size = std.mem.readInt(u64, &header_size_bytes, .little);
@@ -24,7 +25,7 @@ pub const AsarArchive = struct {
         const header_json = try allocator.alloc(u8, header_size);
         defer allocator.free(header_json);
 
-        const header_read = try file.read(header_json);
+        const header_read = try file.readPositionalAll(io, header_json, 8);
         if (header_read != header_size) return error.InvalidArchive;
 
         // Parse header
@@ -43,6 +44,7 @@ pub const AsarArchive = struct {
             .header = header,
             .data_offset = data_offset,
             .allocator = allocator,
+            .io = io,
         };
 
         return archive;
@@ -51,7 +53,7 @@ pub const AsarArchive = struct {
     /// Close the archive and free resources
     pub fn close(self: *AsarArchive) void {
         self.header.deinit(self.allocator);
-        self.file.close();
+        self.file.close(self.io);
         self.allocator.destroy(self);
     }
 
@@ -60,17 +62,14 @@ pub const AsarArchive = struct {
     pub fn readFile(self: *AsarArchive, path: []const u8) ![]u8 {
         const entry = asar.findEntry(&self.header, path) orelse return error.FileNotFound;
 
-        // Seek to file position
+        // Read file data at its offset within the data section
         const file_offset = self.data_offset + entry.offset;
-        try self.file.seekTo(file_offset);
 
-        // Read file data
         const buffer = try self.allocator.alloc(u8, entry.size);
         errdefer self.allocator.free(buffer);
 
-        const n = try self.file.read(buffer);
+        const n = try self.file.readPositionalAll(self.io, buffer, file_offset);
         if (n != entry.size) {
-            self.allocator.free(buffer);
             return error.UnexpectedEOF;
         }
 
@@ -78,11 +77,11 @@ pub const AsarArchive = struct {
     }
 
     /// List all files in the archive (for debugging/CLI)
-    pub fn listFiles(self: *AsarArchive, writer: anytype) !void {
+    pub fn listFiles(self: *AsarArchive, writer: *std.Io.Writer) !void {
         try self.listFilesRecursive(writer, &self.header.files, "");
     }
 
-    fn listFilesRecursive(self: *AsarArchive, writer: anytype, map: *const std.StringHashMap(asar.Entry), prefix: []const u8) !void {
+    fn listFilesRecursive(self: *AsarArchive, writer: *std.Io.Writer, map: *const std.StringHashMap(asar.Entry), prefix: []const u8) !void {
         var it = map.iterator();
         while (it.next()) |kv| {
             const full_path = if (prefix.len == 0)

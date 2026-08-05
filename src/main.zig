@@ -2,36 +2,36 @@ const std = @import("std");
 const reader = @import("reader.zig");
 const writer = @import("writer.zig");
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try init.minimal.args.toSlice(init.arena.allocator());
 
     if (args.len < 2) {
-        try printUsage();
+        try printUsage(io);
         return;
     }
 
     const command = args[1];
 
     if (std.mem.eql(u8, command, "pack")) {
-        try commandPack(allocator, args[2..]);
+        try commandPack(allocator, io, args[2..]);
     } else if (std.mem.eql(u8, command, "list")) {
-        try commandList(allocator, args[2..]);
+        try commandList(allocator, io, args[2..]);
     } else if (std.mem.eql(u8, command, "extract")) {
-        try commandExtract(allocator, args[2..]);
+        try commandExtract(allocator, io, args[2..]);
     } else {
         std.debug.print("Unknown command: {s}\n", .{command});
-        try printUsage();
+        try printUsage(io);
         std.process.exit(1);
     }
 }
 
-fn printUsage() !void {
-    const stdout = std.io.getStdOut().writer();
+fn printUsage(io: std.Io) !void {
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
     try stdout.writeAll(
         \\zig-asar - ASAR archive tool
         \\
@@ -57,12 +57,13 @@ fn printUsage() !void {
         \\  zig-asar extract app.asar views/index.html
         \\
     );
+    try stdout.flush();
 }
 
-fn commandPack(allocator: std.mem.Allocator, args: []const []const u8) !void {
+fn commandPack(allocator: std.mem.Allocator, io: std.Io, args: []const [:0]const u8) !void {
     if (args.len < 2) {
         std.debug.print("Error: pack requires <source_dir> and <output.asar>\n", .{});
-        try printUsage();
+        try printUsage(io);
         std.process.exit(1);
     }
 
@@ -70,8 +71,8 @@ fn commandPack(allocator: std.mem.Allocator, args: []const []const u8) !void {
     const output_path = args[1];
 
     // Parse --unpack patterns
-    var patterns = std.ArrayList([]const u8).init(allocator);
-    defer patterns.deinit();
+    var patterns: std.ArrayList([]const u8) = .empty;
+    defer patterns.deinit(allocator);
 
     var i: usize = 2;
     while (i < args.len) : (i += 1) {
@@ -81,7 +82,7 @@ fn commandPack(allocator: std.mem.Allocator, args: []const []const u8) !void {
                 std.debug.print("Error: --unpack requires a pattern argument\n", .{});
                 std.process.exit(1);
             }
-            try patterns.append(args[i]);
+            try patterns.append(allocator, args[i]);
         } else {
             std.debug.print("Error: unknown option: {s}\n", .{args[i]});
             std.process.exit(1);
@@ -90,44 +91,50 @@ fn commandPack(allocator: std.mem.Allocator, args: []const []const u8) !void {
 
     std.debug.print("Packing {s} -> {s}\n", .{ source_path, output_path });
     if (patterns.items.len > 0) {
-        std.debug.print("Unpack patterns: {s}\n", .{patterns.items});
+        std.debug.print("Unpack patterns:", .{});
+        for (patterns.items) |pattern| {
+            std.debug.print(" {s}", .{pattern});
+        }
+        std.debug.print("\n", .{});
     }
 
-    try writer.pack(allocator, source_path, output_path, patterns.items);
+    try writer.pack(allocator, io, source_path, output_path, patterns.items);
     std.debug.print("✓ Successfully created {s}\n", .{output_path});
 }
 
-fn commandList(allocator: std.mem.Allocator, args: []const []const u8) !void {
+fn commandList(allocator: std.mem.Allocator, io: std.Io, args: []const [:0]const u8) !void {
     if (args.len < 1) {
         std.debug.print("Error: list requires <archive.asar>\n", .{});
-        try printUsage();
+        try printUsage(io);
         std.process.exit(1);
     }
 
     const archive_path = args[0];
-    var archive = try reader.AsarArchive.open(allocator, archive_path);
+    var archive = try reader.AsarArchive.open(allocator, io, archive_path);
     defer archive.close();
 
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    const stdout = &stdout_writer.interface;
     try archive.listFiles(stdout);
+    try stdout.flush();
 }
 
-fn commandExtract(allocator: std.mem.Allocator, args: []const []const u8) !void {
+fn commandExtract(allocator: std.mem.Allocator, io: std.Io, args: []const [:0]const u8) !void {
     if (args.len < 2) {
         std.debug.print("Error: extract requires <archive.asar> and <file_path>\n", .{});
-        try printUsage();
+        try printUsage(io);
         std.process.exit(1);
     }
 
     const archive_path = args[0];
     const file_path = args[1];
 
-    var archive = try reader.AsarArchive.open(allocator, archive_path);
+    var archive = try reader.AsarArchive.open(allocator, io, archive_path);
     defer archive.close();
 
     const data = try archive.readFile(file_path);
     defer allocator.free(data);
 
-    const stdout = std.io.getStdOut();
-    try stdout.writeAll(data);
+    try std.Io.File.stdout().writeStreamingAll(io, data);
 }

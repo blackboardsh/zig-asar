@@ -3,7 +3,7 @@ const asar = @import("asar.zig");
 
 const WalkContext = struct {
     allocator: std.mem.Allocator,
-    source_dir: std.fs.Dir,
+    source_dir: std.Io.Dir,
     entries: std.ArrayList(FileToWrite),
     unpack_patterns: []const []const u8,
     total_size: usize,
@@ -16,16 +16,16 @@ const WalkContext = struct {
 };
 
 /// Pack a directory into an ASAR archive
-pub fn pack(allocator: std.mem.Allocator, source_path: []const u8, output_path: []const u8, unpack_patterns: []const []const u8) !void {
+pub fn pack(allocator: std.mem.Allocator, io: std.Io, source_path: []const u8, output_path: []const u8, unpack_patterns: []const []const u8) !void {
     // Open source directory
-    var source_dir = try std.fs.cwd().openDir(source_path, .{ .iterate = true });
-    defer source_dir.close();
+    var source_dir = try std.Io.Dir.cwd().openDir(io, source_path, .{ .iterate = true });
+    defer source_dir.close(io);
 
     // Walk directory and collect files
     var ctx = WalkContext{
         .allocator = allocator,
         .source_dir = source_dir,
-        .entries = std.ArrayList(WalkContext.FileToWrite).init(allocator),
+        .entries = .empty,
         .unpack_patterns = unpack_patterns,
         .total_size = 0,
     };
@@ -33,10 +33,10 @@ pub fn pack(allocator: std.mem.Allocator, source_path: []const u8, output_path: 
         for (ctx.entries.items) |entry| {
             allocator.free(entry.relative_path);
         }
-        ctx.entries.deinit();
+        ctx.entries.deinit(allocator);
     }
 
-    try walkDirectory(&ctx, source_dir, "");
+    try walkDirectory(&ctx, io, source_dir, "");
 
     // Build header JSON
     const header_json = try buildHeader(allocator, ctx.entries.items);
@@ -48,37 +48,40 @@ pub fn pack(allocator: std.mem.Allocator, source_path: []const u8, output_path: 
     const padding = asar.calculatePadding(header_end);
 
     // Create output file
-    const output_file = try std.fs.cwd().createFile(output_path, .{});
-    defer output_file.close();
+    const output_file = try std.Io.Dir.cwd().createFile(io, output_path, .{});
+    defer output_file.close(io);
+
+    var out_buffer: [8192]u8 = undefined;
+    var file_writer = output_file.writer(io, &out_buffer);
+    const out = &file_writer.interface;
 
     // Write header size
     var header_size_bytes: [8]u8 = undefined;
     std.mem.writeInt(u64, &header_size_bytes, header_size, .little);
-    try output_file.writeAll(&header_size_bytes);
+    try out.writeAll(&header_size_bytes);
 
     // Write header JSON
-    try output_file.writeAll(header_json);
+    try out.writeAll(header_json);
 
     // Write padding
     if (padding > 0) {
         const padding_bytes = [_]u8{0} ** 4;
-        try output_file.writeAll(padding_bytes[0..padding]);
+        try out.writeAll(padding_bytes[0..padding]);
     }
 
     // Write file data
     for (ctx.entries.items) |entry| {
         if (entry.should_unpack) continue; // Skip unpacked files
 
-        const file = try source_dir.openFile(entry.relative_path, .{});
-        defer file.close();
+        const file = try source_dir.openFile(io, entry.relative_path, .{});
+        defer file.close(io);
 
-        var buffer: [8192]u8 = undefined;
-        while (true) {
-            const n = try file.read(&buffer);
-            if (n == 0) break;
-            try output_file.writeAll(buffer[0..n]);
-        }
+        var read_buffer: [8192]u8 = undefined;
+        var file_reader = file.reader(io, &read_buffer);
+        _ = try file_reader.interface.streamRemaining(out);
     }
+
+    try out.flush();
 
     // Copy unpacked files to .unpacked directory
     if (ctx.entries.items.len > 0) {
@@ -94,32 +97,30 @@ pub fn pack(allocator: std.mem.Allocator, source_path: []const u8, output_path: 
             const unpacked_dir = try std.fmt.allocPrint(allocator, "{s}.unpacked", .{output_path});
             defer allocator.free(unpacked_dir);
 
-            // Create unpacked directory
-            std.fs.cwd().makeDir(unpacked_dir) catch |err| {
-                if (err != error.PathAlreadyExists) return err;
-            };
+            // Create unpacked directory (ok if it already exists)
+            try std.Io.Dir.cwd().createDirPath(io, unpacked_dir);
 
-            var unpacked_root = try std.fs.cwd().openDir(unpacked_dir, .{});
-            defer unpacked_root.close();
+            var unpacked_root = try std.Io.Dir.cwd().openDir(io, unpacked_dir, .{});
+            defer unpacked_root.close(io);
 
             for (ctx.entries.items) |entry| {
                 if (!entry.should_unpack) continue;
 
                 // Ensure parent directories exist
-                if (std.fs.path.dirname(entry.relative_path)) |parent| {
-                    try unpacked_root.makePath(parent);
+                if (std.Io.Dir.path.dirname(entry.relative_path)) |parent| {
+                    try unpacked_root.createDirPath(io, parent);
                 }
 
                 // Copy file
-                try source_dir.copyFile(entry.relative_path, unpacked_root, entry.relative_path, .{});
+                try source_dir.copyFile(entry.relative_path, unpacked_root, entry.relative_path, io, .{});
             }
         }
     }
 }
 
-fn walkDirectory(ctx: *WalkContext, dir: std.fs.Dir, prefix: []const u8) !void {
+fn walkDirectory(ctx: *WalkContext, io: std.Io, dir: std.Io.Dir, prefix: []const u8) !void {
     var iter = dir.iterate();
-    while (try iter.next()) |entry| {
+    while (try iter.next(io)) |entry| {
         const full_path = if (prefix.len == 0)
             try ctx.allocator.dupe(u8, entry.name)
         else
@@ -127,11 +128,11 @@ fn walkDirectory(ctx: *WalkContext, dir: std.fs.Dir, prefix: []const u8) !void {
 
         switch (entry.kind) {
             .file => {
-                const stat = try dir.statFile(entry.name);
-                const size = stat.size;
+                const stat = try dir.statFile(io, entry.name, .{});
+                const size: usize = @intCast(stat.size);
                 const should_unpack = shouldUnpack(full_path, ctx.unpack_patterns);
 
-                try ctx.entries.append(.{
+                try ctx.entries.append(ctx.allocator, .{
                     .relative_path = full_path,
                     .size = size,
                     .should_unpack = should_unpack,
@@ -142,9 +143,9 @@ fn walkDirectory(ctx: *WalkContext, dir: std.fs.Dir, prefix: []const u8) !void {
                 }
             },
             .directory => {
-                var subdir = try dir.openDir(entry.name, .{ .iterate = true });
-                defer subdir.close();
-                try walkDirectory(ctx, subdir, full_path);
+                var subdir = try dir.openDir(io, entry.name, .{ .iterate = true });
+                defer subdir.close(io);
+                try walkDirectory(ctx, io, subdir, full_path);
                 ctx.allocator.free(full_path);
             },
             else => {
@@ -165,7 +166,7 @@ fn matchGlob(path: []const u8, pattern: []const u8) bool {
     // Simple glob matching - supports * and ** wildcards
     if (std.mem.indexOf(u8, pattern, "**") != null) {
         // Recursive wildcard
-        const parts = std.mem.split(u8, pattern, "**");
+        const parts = std.mem.splitSequence(u8, pattern, "**");
         // For now, just do simple suffix matching
         if (std.mem.endsWith(u8, path, parts.rest())) return true;
     } else if (std.mem.indexOf(u8, pattern, "*") != null) {
@@ -201,7 +202,7 @@ const TreeNode = struct {
         self.files.deinit();
     }
 
-    fn toJson(self: *const TreeNode, writer: anytype, is_root: bool) !void {
+    fn toJson(self: *const TreeNode, writer: *std.Io.Writer, is_root: bool) !void {
         if (self.size) |size| {
             // Leaf node (file)
             try writer.print("{{\"size\":{d},\"offset\":\"{d}\"}}", .{ size, self.offset.? });
@@ -238,12 +239,12 @@ fn buildHeader(allocator: std.mem.Allocator, entries: []const WalkContext.FileTo
         current_offset += entry.size;
     }
 
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer: std.Io.Writer.Allocating = .init(allocator);
     defer buffer.deinit();
 
-    try buffer.append('{');
-    try root.toJson(buffer.writer(), true);
-    try buffer.append('}');
+    try buffer.writer.writeByte('{');
+    try root.toJson(&buffer.writer, true);
+    try buffer.writer.writeByte('}');
 
     return try buffer.toOwnedSlice();
 }
@@ -252,11 +253,11 @@ fn addToTree(allocator: std.mem.Allocator, root: *TreeNode, path: []const u8, si
     var current = root;
     var it = std.mem.splitScalar(u8, path, '/');
 
-    var segments = std.ArrayList([]const u8).init(allocator);
-    defer segments.deinit();
+    var segments: std.ArrayList([]const u8) = .empty;
+    defer segments.deinit(allocator);
 
     while (it.next()) |segment| {
-        try segments.append(segment);
+        try segments.append(allocator, segment);
     }
 
     for (segments.items, 0..) |segment, i| {
@@ -280,4 +281,3 @@ fn addToTree(allocator: std.mem.Allocator, root: *TreeNode, path: []const u8, si
         }
     }
 }
-

@@ -8,7 +8,7 @@ import { execSync } from 'child_process';
 import { existsSync, mkdirSync, unlinkSync, rmSync } from 'fs';
 import { join } from 'path';
 
-const ZIG_VERSION = '0.13.0';
+const ZIG_VERSION = '0.16.0';
 
 async function vendorZig() {
   const platform = process.platform;
@@ -30,21 +30,23 @@ async function vendorZig() {
     mkdirSync(vendorsDir, { recursive: true });
 
     if (platform === 'darwin') {
-      const url = `https://ziglang.org/download/${ZIG_VERSION}/zig-macos-${arch}-${ZIG_VERSION}.tar.xz`;
+      const zigFolder = `zig-${arch}-macos-${ZIG_VERSION}`;
+      const url = `https://ziglang.org/download/${ZIG_VERSION}/${zigFolder}.tar.xz`;
       execSync(
-        `curl -L ${url} | tar -xJ --strip-components=1 -C vendors/zig zig-macos-${arch}-${ZIG_VERSION}/zig zig-macos-${arch}-${ZIG_VERSION}/lib zig-macos-${arch}-${ZIG_VERSION}/doc`,
+        `curl -L ${url} | tar -xJ --strip-components=1 -C vendors/zig ${zigFolder}/zig ${zigFolder}/lib ${zigFolder}/doc`,
         { stdio: 'inherit' }
       );
       console.log('✓ Zig vendored for macOS');
     } else if (platform === 'linux') {
-      const url = `https://ziglang.org/download/${ZIG_VERSION}/zig-linux-${arch}-${ZIG_VERSION}.tar.xz`;
+      const zigFolder = `zig-${arch}-linux-${ZIG_VERSION}`;
+      const url = `https://ziglang.org/download/${ZIG_VERSION}/${zigFolder}.tar.xz`;
       execSync(
-        `curl -L ${url} | tar -xJ --strip-components=1 -C vendors/zig zig-linux-${arch}-${ZIG_VERSION}/zig zig-linux-${arch}-${ZIG_VERSION}/lib zig-linux-${arch}-${ZIG_VERSION}/doc`,
+        `curl -L ${url} | tar -xJ --strip-components=1 -C vendors/zig ${zigFolder}/zig ${zigFolder}/lib ${zigFolder}/doc`,
         { stdio: 'inherit' }
       );
       console.log('✓ Zig vendored for Linux');
     } else if (platform === 'win32') {
-      const zigFolder = `zig-windows-${arch}-${ZIG_VERSION}`;
+      const zigFolder = `zig-${arch}-windows-${ZIG_VERSION}`;
       const zipPath = join(process.cwd(), 'vendors', 'zig.zip');
       const tempDir = join(process.cwd(), 'vendors', 'zig-temp');
 
