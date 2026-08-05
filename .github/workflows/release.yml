@@ -39,10 +39,14 @@ jobs:
             platform: win32
             arch: x64
             zig-target: x86_64-windows-msvc
-          - os: windows-11-arm
+          # zig 0.16.0's aarch64-windows compiler exits immediately on the
+          # windows-11-arm runner (no output); cross-compile from x64 instead
+          # and skip native tests for this artifact only.
+          - os: windows-2025
             platform: win32
             arch: arm64
             zig-target: aarch64-windows-msvc
+            cross: true
 
     runs-on: ${{ matrix.os }}
 
@@ -79,6 +83,7 @@ jobs:
           done
 
       - name: Run tests
+        if: matrix.cross != true
         run: |
           zig build test
 
