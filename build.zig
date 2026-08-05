@@ -31,20 +31,24 @@ pub fn build(b: *std.Build) void {
     };
     b.installArtifact(lib);
 
-    // Static archive of the same module. macOS release artifacts re-link
-    // this with Apple's clang (see release.yml): zig 0.16's MachO linker
-    // exports ___dso_handle/__mh_dylib_header from dylibs, which breaks
-    // downstream Apple-ld links against libasar.dylib.
-    const static_lib = b.addLibrary(.{
-        .name = "asar-static",
-        .linkage = .static,
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/lib.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    b.installArtifact(static_lib);
+    // Static archive of the same module, macOS only. Release artifacts
+    // re-link it with Apple's clang (see release.yml): zig 0.16's MachO
+    // linker exports ___dso_handle/__mh_dylib_header from dylibs, which
+    // breaks downstream Apple-ld links against libasar.dylib. (Not built
+    // elsewhere: aarch64-windows-msvc trips a zig 0.16 std.debug compile
+    // bug in static ReleaseFast builds.)
+    if (target.result.os.tag == .macos) {
+        const static_lib = b.addLibrary(.{
+            .name = "asar-static",
+            .linkage = .static,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("src/lib.zig"),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        b.installArtifact(static_lib);
+    }
 
     // CLI binary (statically linked to avoid dynamic library issues)
     const exe = b.addExecutable(.{
