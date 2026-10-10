@@ -1,24 +1,33 @@
 #!/usr/bin/env node
 /**
  * Setup script for zig-asar development
- * - Vendors Zig compiler if not already present
+ * - Vendors the pinned Zig compiler, replacing outdated installations
  */
 
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { existsSync, mkdirSync, unlinkSync, rmSync } from 'fs';
 import { join } from 'path';
 
-const ZIG_VERSION = '0.16.0';
+const ZIG_VERSION = '0.17.0';
 
 async function vendorZig() {
   const platform = process.platform;
   const zigBinary = platform === 'win32' ? 'zig.exe' : 'zig';
   const zigBinPath = join(process.cwd(), 'vendors', 'zig', zigBinary);
 
-  // Check if Zig is already vendored
+  // Reuse the vendored compiler only when it matches the required version.
   if (existsSync(zigBinPath)) {
-    console.log('✓ Zig already vendored');
-    return;
+    try {
+      const version = execFileSync(zigBinPath, ['version'], { encoding: 'utf8' }).trim();
+      if (version === ZIG_VERSION) {
+        console.log(`✓ Zig ${ZIG_VERSION} already vendored`);
+        return;
+      }
+      console.log(`Replacing vendored Zig ${version} with ${ZIG_VERSION}...`);
+    } catch {
+      console.log(`Replacing unusable vendored Zig with ${ZIG_VERSION}...`);
+    }
+    rmSync(join(process.cwd(), 'vendors', 'zig'), { recursive: true, force: true });
   }
 
   console.log('Vendoring Zig compiler...');
@@ -80,6 +89,11 @@ async function vendorZig() {
     } else {
       console.error(`Unsupported platform: ${platform}`);
       process.exit(1);
+    }
+
+    const version = execFileSync(zigBinPath, ['version'], { encoding: 'utf8' }).trim();
+    if (version !== ZIG_VERSION) {
+      throw new Error(`Expected Zig ${ZIG_VERSION}, found ${version}`);
     }
   } catch (error) {
     console.error('Failed to vendor Zig:', error.message);

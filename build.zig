@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) void {
     if (target.result.os.tag == .macos and target.result.cpu.arch == .x86_64) {
         lib.headerpad_size = 0x1000;
     }
-    // Zig 0.16's MachO linker exports ___dso_handle/__mh_dylib_header by
+    // Zig's MachO linker exports ___dso_handle/__mh_dylib_header by
     // default, which breaks downstream Apple ld links against this dylib
     // (adrp_lo12 fixups can't target the external ___dso_handle). Export
     // only the C API.
@@ -32,11 +32,10 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(lib);
 
     // Static archive of the same module, macOS only. Release artifacts
-    // re-link it with Apple's clang (see release.yml): zig 0.16's MachO
+    // re-link it with Apple's clang (see release.yml): Zig's MachO
     // linker exports ___dso_handle/__mh_dylib_header from dylibs, which
-    // breaks downstream Apple-ld links against libasar.dylib. (Not built
-    // elsewhere: aarch64-windows-msvc trips a zig 0.16 std.debug compile
-    // bug in static ReleaseFast builds.)
+    // breaks downstream Apple-ld links against libasar.dylib. Other
+    // platforms do not need this intermediate archive.
     if (target.result.os.tag == .macos) {
         const static_lib = b.addLibrary(.{
             .name = "asar-static",

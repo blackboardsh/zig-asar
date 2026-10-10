@@ -65,7 +65,7 @@ pub fn pack(allocator: std.mem.Allocator, io: std.Io, source_path: []const u8, o
 
     // Write padding
     if (padding > 0) {
-        const padding_bytes = [_]u8{0} ** 4;
+        const padding_bytes: [4]u8 = @splat(0);
         try out.writeAll(padding_bytes[0..padding]);
     }
 

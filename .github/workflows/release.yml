@@ -39,14 +39,10 @@ jobs:
             platform: win32
             arch: x64
             zig-target: x86_64-windows-msvc
-          # zig 0.16.0's aarch64-windows compiler exits immediately on the
-          # windows-11-arm runner (no output); cross-compile from x64 instead
-          # and skip native tests for this artifact only.
-          - os: windows-2025
+          - os: windows-11-arm
             platform: win32
             arch: arm64
             zig-target: aarch64-windows-msvc
-            cross: true
 
     runs-on: ${{ matrix.os }}
 
@@ -57,7 +53,7 @@ jobs:
 
       - uses: mlugg/setup-zig@v2
         with:
-          version: 0.16.0
+          version: 0.17.0
 
       - uses: actions/setup-node@v4
         with:
@@ -71,7 +67,7 @@ jobs:
         if: matrix.platform == 'darwin'
         shell: bash
         run: |
-          # zig 0.16's MachO linker exports ___dso_handle/__mh_dylib_header,
+          # Zig's MachO linker exports ___dso_handle/__mh_dylib_header,
           # which breaks downstream Apple-ld links against libasar.dylib.
           # Re-link from the static archive with an explicit export list.
           clang -dynamiclib -mmacosx-version-min=14.0 \
@@ -102,9 +98,8 @@ jobs:
           done
 
       - name: Run tests
-        if: matrix.cross != true
         run: |
-          zig build test
+          zig build test -Dcpu=baseline -Dtarget=${{ matrix.zig-target }}
 
       - name: Verify Intel Mach-O code-signing header capacity
         if: matrix.platform == 'darwin' && matrix.arch == 'x64'

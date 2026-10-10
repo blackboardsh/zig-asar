@@ -12,9 +12,14 @@ A fast, lightweight ASAR (Electron Archive) implementation in Zig.
 
 ## Building
 
+Requires Zig 0.17.0. Install and build with the pinned compiler:
+
 ```bash
-zig build
+npm run setup
+vendors/zig/zig build
 ```
+
+With Zig 0.17.0 already on your `PATH`, use `zig build` directly.
 
 This produces:
 - `zig-out/lib/libasar.{dylib,dll,so}` - Dynamic library
