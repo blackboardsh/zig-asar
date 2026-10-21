@@ -1,0 +1,60 @@
+name: Verify Published macOS Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Published stable version (blank uses package.json)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            arch: x64
+          - os: macos-14
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Download and verify immutable published archive
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_ARCH: ${{ matrix.arch }}
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { execFileSync } from 'node:child_process';
+          import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+          const version = process.env.RELEASE_VERSION || JSON.parse(readFileSync('package.json')).version;
+          assert.match(version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
+          const base = `https://electrobun-artifacts.blackboard.sh/zig-asar/releases/${version}`;
+          const manifest = JSON.parse(execFileSync('curl', ['-fsSL', `${base}/manifest.json`]));
+          assert.equal(manifest.product, 'zig-asar');
+          assert.equal(manifest.version, version);
+          const artifact = manifest.artifacts[`darwin-${process.env.RELEASE_ARCH}`];
+          assert.ok(artifact, 'Published manifest includes requested architecture');
+          assert.equal(artifact.url, `${base}/zig-asar-darwin-${process.env.RELEASE_ARCH}.tar.gz`);
+          mkdirSync('published', { recursive: true });
+          execFileSync('curl', ['-fsSL', artifact.url, '-o', 'published/release.tar.gz']);
+          const bytes = readFileSync('published/release.tar.gz');
+          assert.equal(bytes.length, artifact.size);
+          assert.equal(createHash('sha256').update(bytes).digest('hex'), artifact.sha256);
+          writeFileSync('published/manifest.json', JSON.stringify(manifest, null, 2));
+          execFileSync('tar', ['-xzf', 'published/release.tar.gz', '-C', 'published']);
+          console.log(`Verified published zig-asar ${version}: ${artifact.sha256}`);
+          JS
+      - name: Test published CLI and C ABI
+        run: node scripts/test-macos-release.js published ${{ matrix.arch }}
